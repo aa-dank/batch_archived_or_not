@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 URL_TEMPLATE = r"https://{}/api/archived_or_not?user={}&password={}"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
@@ -24,24 +24,31 @@ class HeavyLifter(QThread):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, path, recursive, only_missing_files, output_type, custom_path, *args, **kwargs):
+    def __init__(self, path, exclude_src, recursive, only_missing_files, output_type, custom_path, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.path = path
+        self.exclude_src = exclude_src
         self.recursive = recursive
         self.only_missing_files = only_missing_files
         self.output_type = output_type
         self.custom_path = custom_path
+        self.stop = False # new stop flag that resets progress
 
     def run(self):
+        self.stop = False
         try:
             self.process_files()
         except Exception as e:
             self.error.emit(f"Error occurred: {str(e)}")
 
+    def cancel(self):
+        self.stop = True
+
     def process_files(self):
         file_ignore = [".DS_Store", "Thumbs.db"]
         results = {}
         progress_bar_counter = 0
+        self.progress.emit(0)
         progress_bar_max = self.find_file_count()
 
         if progress_bar_max == 0:
@@ -49,9 +56,17 @@ class HeavyLifter(QThread):
             return
 
         for root, dirs, files in os.walk(self.path):
+            if self.stop:
+                self.finished.emit("<br><b>Process canceled.</b>")
+                self.progress.emit(100)
+                return
             # iterate through files in directory
             for file in files:
                 # skip hidden and temp files
+                if self.stop:
+                    self.finished.emit("<br><b>Process canceled.</b>")
+                    self.progress.emit(100)
+                    return
                 if file in file_ignore or file.startswith("~$"):
                     continue
 
@@ -61,7 +76,6 @@ class HeavyLifter(QThread):
                 # avoid 0%
                 if progress == 0:
                     progress = 1
-                self.progress.emit(progress)
 
                 filepath = os.path.join(root, file)
                 path_relative_to_files_location = os.path.relpath(filepath, self.path)
@@ -87,14 +101,17 @@ class HeavyLifter(QThread):
                             file_locations = json.loads(response.text)
                             if self.only_missing_files:
                                 results[filepath] = file_locations
-                                continue
-                            for i in range(len(file_locations)):
-                                file_locations[i] = "N:\\PPDO\\Records\\{}".format(file_locations[i].replace('/', '\\'))
-                                self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
+                            else:
+                                for i in range(len(file_locations)):
+                                    file_locations[i] = "N:\\PPDO\\Records\\{}".format(file_locations[i].replace('/', '\\'))
+                                    self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
+                                    if self.exclude_src and file_locations[i] == filepath:
+                                        del file_locations[i]
                 except Exception as e:
                     if 'response' in locals() and response.status_code in [404, 400, 500, 405]:
                         self.error.emit(f"Request Error:<br>{response.text}")
                         return
+                self.progress.emit(progress)
                 results[filepath] = file_locations
 
             if root == self.path and not self.recursive:
@@ -147,6 +164,7 @@ class GuiHandler(QWidget):
         self.layout = QVBoxLayout()
         self.app_version = app_version
         self.initUI()
+        self.hl = None
 
     def initUI(self):
         self.setWindowTitle("Batch Archived or Not")
@@ -202,12 +220,22 @@ class GuiHandler(QWidget):
         self.missing_box = QCheckBox("Only show files that are not found on the server? Useful for reducing the output from this tool (won't effect excel or json output)", self)
         self.layout.addWidget(self.missing_box)
 
+        self.exclude_source_box = QCheckBox("ONLY FOR JSON/EXCEL OUTPUT: Exclude source path for each file? helpful when looking for files other occurences.", self)
+        self.layout.addWidget(self.exclude_source_box)
+
         # Submit button
         self.submit_layout = QHBoxLayout()  # Added QHBoxLayout for submit button and progress bar
         self.submit_button = QPushButton("Submit", self)
         self.submit_button.clicked.connect(self.archived_or_not_call)
         self.submit_layout.addWidget(self.submit_button)
 
+        # Cancel button
+        self.cancel_button = QPushButton("Cancel", self)
+        self.cancel_button.clicked.connect(self.cancel_heavylifter)
+        self.cancel_button.setEnabled(False)
+        self.submit_layout.addWidget(self.cancel_button)
+
+        # Progress bar
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
@@ -241,6 +269,7 @@ class GuiHandler(QWidget):
     def archived_or_not_call(self):
         self.output_text_edit.clear()
 
+        exclude_src = self.exclude_source_box.isChecked()
         recursive = self.recursive_box.isChecked()
         only_missing_files = self.missing_box.isChecked()
         output_type = self.save_combo_box.currentText()
@@ -251,11 +280,17 @@ class GuiHandler(QWidget):
             self.output_text_edit.append("Must input valid filepath")
             return
 
-        self.hl = HeavyLifter(files_location, recursive, only_missing_files, output_type, custom_path)
+        self.hl = HeavyLifter(files_location, exclude_src, recursive, only_missing_files, output_type, custom_path)
         self.hl.progress.connect(self.progress_bar.setValue)
         self.hl.finished.connect(self.handle_finished)
         self.hl.error.connect(self.output_text_edit.append)
+        self.cancel_button.setEnabled(True)
         self.hl.start()
+
+    def cancel_heavylifter(self):
+        if self.hl and self.hl.isRunning():
+            self.hl.cancel()
+            self.cancel_button.setEnabled(False)
 
     def handle_finished(self, message):
         self.output_text_edit.append(message)
