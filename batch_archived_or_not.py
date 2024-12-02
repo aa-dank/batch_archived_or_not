@@ -13,11 +13,13 @@ from PySide6.QtCore import Qt
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.2"
-URL_TEMPLATE = r"https://{}/api/archived_or_not?user={}&password={}"
+VERSION = "1.1.3"
+URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
 basedir = os.path.dirname(__file__)
+
+headers = {"user": APP_API_USERNAME, "password": APP_API_PASSWORD}
 
 class HeavyLifter(QThread):
     progress = Signal(int)
@@ -79,14 +81,14 @@ class HeavyLifter(QThread):
 
                 filepath = os.path.join(root, file)
                 path_relative_to_files_location = os.path.relpath(filepath, self.path)
-                request_url = URL_TEMPLATE.format(ADDRESS, APP_API_USERNAME, APP_API_PASSWORD)
+                request_url = URL_TEMPLATE.format(ADDRESS)
                 file_locations = []
 
                 # open file and send to server endpoint
                 try:
                     with open(filepath, 'rb') as f:
                         files = {'file': f}
-                        response = requests.post(request_url, files=files, verify=False)
+                        response = requests.post(request_url, headers=headers, files=files, verify=False)
                         filepath = filepath.replace('/', '\\')
 
                         file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
@@ -220,7 +222,7 @@ class GuiHandler(QWidget):
         self.missing_box = QCheckBox("Only show files that are not found on the server? Useful for reducing the output from this tool (won't effect excel or json output)", self)
         self.layout.addWidget(self.missing_box)
 
-        self.exclude_source_box = QCheckBox("ONLY FOR JSON/EXCEL OUTPUT: Exclude source path for each file? helpful when looking for files other occurences.", self)
+        self.exclude_source_box = QCheckBox("ONLY FOR JSON/EXCEL OUTPUT: Exclude the source path for each file. Helpful when looking for files that are already on the R-drive other occurences.", self)
         self.layout.addWidget(self.exclude_source_box)
 
         # Submit button
