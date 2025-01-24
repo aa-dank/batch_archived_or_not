@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.3"
+VERSION = "1.1.4"
 URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
@@ -222,7 +222,7 @@ class GuiHandler(QWidget):
         self.missing_box = QCheckBox("Only show files that are not found on the server? Useful for reducing the output from this tool (won't effect excel or json output)", self)
         self.layout.addWidget(self.missing_box)
 
-        self.exclude_source_box = QCheckBox("ONLY FOR JSON/EXCEL OUTPUT: Exclude the source path for each file. Helpful when looking for files that are already on the R-drive other occurences.", self)
+        self.exclude_source_box = QCheckBox("ONLY FOR JSON/EXCEL: Exclude the source path for each file. Helpful when looking for files that are already on the archives file server other occurences.", self)
         self.layout.addWidget(self.exclude_source_box)
 
         # Submit button
