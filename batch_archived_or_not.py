@@ -2,15 +2,13 @@ import sys
 import os
 import json
 import pandas as pd
-import requests.packages
-import requests.api
+import httpx
 from datetime import datetime
 from PySide6 import QtGui
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QPushButton, QHBoxLayout, QLabel,
                                QFileDialog, QCheckBox, QLineEdit, QProgressBar, QComboBox)
 from PySide6.QtCore import Qt
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
 VERSION = "1.1.4"
@@ -23,11 +21,11 @@ headers = {"user": APP_API_USERNAME, "password": APP_API_PASSWORD}
 
 class HeavyLifter(QThread):
     """
-    A QThread subclass that handles the heavy lifting of file processing and API calls.
+    A QThread subclass that handles the heavy lifting of file processing and HTTP API calls.
     
     This class runs in a separate thread to prevent the GUI from freezing while processing
-    files. It walks through directory structures, sends files to a remote API to check
-    if they are archived, and reports progress and results back to the main thread.
+    files. It walks through directory structures, sends files to a remote API via HTTPX
+    to check if they are archived, and reports progress and results back to the main thread.
     
     Signals:
         progress (int): Emitted to update the progress bar (0-100)
@@ -182,7 +180,8 @@ class HeavyLifter(QThread):
                 try:
                     with open(filepath, 'rb') as f:
                         files = {'file': f}
-                        response = requests.post(request_url, headers=headers, files=files, verify=False)
+                        with httpx.Client(verify=False) as client:
+                            response = client.post(request_url, headers=headers, files=files)
                         filepath = filepath.replace('/', '\\')
 
                         file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
@@ -604,9 +603,19 @@ def excel_export(r, time, custom_directory_path):
 
 
 def main():
-    # Disable SSL warnings
-    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
+    """
+    Main application entry point that initializes and runs the GUI application.
+    
+    Sets up the QApplication, configures the window icon, creates the GUI handler,
+    and starts the main event loop. The application will run until the user exits.
+    
+    Side Effects:
+        - Creates QApplication instance
+        - Sets window icon from app_icon_.ico file
+        - Creates and displays the main GUI window
+        - Starts the Qt event loop
+        - Exits the application when loop ends
+    """
     app = QApplication(sys.argv)
     app.setWindowIcon(QtGui.QIcon(os.path.join(basedir, 'app_icon_.ico')))
     gui = GuiHandler(app_version=VERSION)
