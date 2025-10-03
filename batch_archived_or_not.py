@@ -25,6 +25,7 @@ class HeavyLifter(QThread):
     progress = Signal(int)
     finished = Signal(str)
     error = Signal(str)
+    files_to_ignore = [".DS_Store", "Thumbs.db"]
 
     def __init__(self, path, exclude_src, recursive, only_missing_files, output_type, custom_path, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -46,8 +47,22 @@ class HeavyLifter(QThread):
     def cancel(self):
         self.stop = True
 
+    def ignore_file(self, filename):
+        """Check if a file should be ignored based on filename"""
+        return filename in self.files_to_ignore or filename.startswith("~$")
+
+    def update_progress(self, current_count, total_count):
+        """Update progress bar with current file processing count"""
+        if total_count == 0:
+            progress = 0
+        else:
+            progress = int((current_count * 100) // total_count)
+            # avoid 0%
+            if progress == 0:
+                progress = 1
+        self.progress.emit(progress)
+
     def process_files(self):
-        file_ignore = [".DS_Store", "Thumbs.db"]
         results = {}
         progress_bar_counter = 0
         self.progress.emit(0)
@@ -57,7 +72,7 @@ class HeavyLifter(QThread):
             self.finished.emit("No files found.")
             return
 
-        for root, dirs, files in os.walk(self.path):
+        for root, _, files in os.walk(self.path):
             if self.stop:
                 self.finished.emit("<br><b>Process canceled.</b>")
                 self.progress.emit(100)
@@ -69,15 +84,13 @@ class HeavyLifter(QThread):
                     self.finished.emit("<br><b>Process canceled.</b>")
                     self.progress.emit(100)
                     return
-                if file in file_ignore or file.startswith("~$"):
-                    continue
-
+                
                 # update progress bar
                 progress_bar_counter += 1
-                progress = int((progress_bar_counter * 100) // progress_bar_max)
-                # avoid 0%
-                if progress == 0:
-                    progress = 1
+                self.update_progress(progress_bar_counter, progress_bar_max)
+
+                if self.ignore_file(file):
+                    continue
 
                 filepath = os.path.join(root, file)
                 path_relative_to_files_location = os.path.relpath(filepath, self.path)
@@ -101,9 +114,7 @@ class HeavyLifter(QThread):
                             file_locations = "None"
                         else:
                             file_locations = json.loads(response.text)
-                            if self.only_missing_files:
-                                results[filepath] = file_locations
-                            else:
+                            if not self.only_missing_files:
                                 for i in range(len(file_locations)):
                                     file_locations[i] = "N:\\PPDO\\Records\\{}".format(file_locations[i].replace('/', '\\'))
                                     self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
@@ -112,8 +123,11 @@ class HeavyLifter(QThread):
                 except Exception as e:
                     if 'response' in locals() and response.status_code in [404, 400, 500, 405]:
                         self.error.emit(f"Request Error:<br>{response.text}")
-                        return
-                self.progress.emit(progress)
+                    else:
+                        self.error.emit(f"Error processing file {filepath}: {str(e)}")
+                    results[filepath] = "Error"
+                    continue
+                
                 results[filepath] = file_locations
 
             if root == self.path and not self.recursive:
@@ -124,12 +138,11 @@ class HeavyLifter(QThread):
 
     def find_file_count(self):
         file_count = 0
-        file_ignore = {".DS_Store", "Thumbs.db"}
 
         self.finished.emit("<b>Calculating file count...</b>")
         for _, _, files in os.walk(self.path):
             for file in files:
-                if file not in file_ignore and not file.startswith("~$"):
+                if not self.ignore_file(file):
                     file_count += 1
             if not self.recursive:
                 break
