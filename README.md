@@ -19,12 +19,12 @@ Before running the application, ensure you have the following installed:
 - **Python**: Version 3.8 or higher.
 - **Required Python Packages**:
   - `pandas`
-  - `requests`
+  - `httpx`
   - `PySide6`
   
 To install the necessary packages, run:
 ```bash
-pip install pandas requests PySide6
+pip install pandas httpx PySide6
 ```
 
 ## How to Use
@@ -57,7 +57,7 @@ The application provides a simple, intuitive graphical interface where users can
 1. Clone the repository or download the project files.
 2. Install the required dependencies:
 ```bash
-pip install pandas requests PySide6
+pip install pandas httpx PySide6
 ```
 3. Fill in the `creds.py` file in the project directory with the following content:
 ```python
@@ -70,5 +70,5 @@ python app.py
 ```
 
 ## Notes
-- **SSL Warnings**: The application suppresses SSL certificate warnings during API requests for convenience. If you need to enforce certificate validation, modify the requests call in the code to verify=True.
+- **SSL Certificate Handling**: The application uses httpx with SSL verification disabled for convenience. If you need to enforce certificate validation, modify the httpx.Client call in the code to verify=True.
 - **Icon**: The application includes a window icon, which you can replace by updating the app_icon_.ico file in the root directory. This can be used when packaging the project into an application.
