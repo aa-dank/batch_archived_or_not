@@ -22,12 +22,40 @@ basedir = os.path.dirname(__file__)
 headers = {"user": APP_API_USERNAME, "password": APP_API_PASSWORD}
 
 class HeavyLifter(QThread):
+    """
+    A QThread subclass that handles the heavy lifting of file processing and API calls.
+    
+    This class runs in a separate thread to prevent the GUI from freezing while processing
+    files. It walks through directory structures, sends files to a remote API to check
+    if they are archived, and reports progress and results back to the main thread.
+    
+    Signals:
+        progress (int): Emitted to update the progress bar (0-100)
+        finished (str): Emitted with status messages for the UI
+        error (str): Emitted when errors occur during processing
+        
+    Attributes:
+        files_to_ignore (list): List of system files to skip during processing
+    """
     progress = Signal(int)
     finished = Signal(str)
     error = Signal(str)
     files_to_ignore = [".DS_Store", "Thumbs.db"]
 
     def __init__(self, path, exclude_src, recursive, only_missing_files, output_type, custom_path, *args, **kwargs):
+        """
+        Initialize the HeavyLifter thread with processing parameters.
+        
+        Args:
+            path (str): The directory path to process files from
+            exclude_src (bool): Whether to exclude source paths from results
+            recursive (bool): Whether to search subdirectories recursively
+            only_missing_files (bool): Whether to show only files not found on server
+            output_type (str): Output format ("none", "json", "excel", or "json and excel")
+            custom_path (str): Custom path for saving output files
+            *args: Additional positional arguments for QThread
+            **kwargs: Additional keyword arguments for QThread
+        """
         super().__init__(*args, **kwargs)
         self.path = path
         self.exclude_src = exclude_src
@@ -38,6 +66,16 @@ class HeavyLifter(QThread):
         self.stop = False # new stop flag that resets progress
 
     def run(self):
+        """
+        Main thread execution method that runs the file processing workflow.
+        
+        This method is called when the thread starts. It resets the stop flag,
+        calls process_files() to handle the actual work, and emits error signals
+        if any exceptions occur during processing.
+        
+        Raises:
+            Exception: Any exception during file processing is caught and emitted as an error signal
+        """
         self.stop = False
         try:
             self.process_files()
@@ -45,14 +83,42 @@ class HeavyLifter(QThread):
             self.error.emit(f"Error occurred: {str(e)}")
 
     def cancel(self):
+        """
+        Cancel the current file processing operation.
+        
+        Sets the stop flag to True, which will cause the processing loop
+        to exit gracefully on the next iteration.
+        """
         self.stop = True
 
     def ignore_file(self, filename):
-        """Check if a file should be ignored based on filename"""
+        """
+        Check if a file should be ignored based on filename.
+        
+        Args:
+            filename (str): The name of the file to check
+            
+        Returns:
+            bool: True if the file should be ignored, False otherwise
+            
+        Note:
+            Files are ignored if they are in the files_to_ignore list
+            or if they start with "~$" (temporary files)
+        """
         return filename in self.files_to_ignore or filename.startswith("~$")
 
     def update_progress(self, current_count, total_count):
-        """Update progress bar with current file processing count"""
+        """
+        Update progress bar with current file processing count.
+        
+        Args:
+            current_count (int): Number of files processed so far
+            total_count (int): Total number of files to process
+            
+        Note:
+            Calculates percentage and ensures minimum 1% to avoid showing 0%
+            Emits progress signal to update the GUI progress bar
+        """
         if total_count == 0:
             progress = 0
         else:
@@ -63,6 +129,21 @@ class HeavyLifter(QThread):
         self.progress.emit(progress)
 
     def process_files(self):
+        """
+        Process all files in the specified directory and check if they exist on the remote server.
+        
+        This method walks through the directory structure, filters out ignored files,
+        sends each valid file to the remote API endpoint to check if it's archived,
+        and collects the results. Progress is updated throughout the process.
+        
+        The method handles API responses and formats the results based on the
+        configured options (only_missing_files, exclude_src, etc.).
+        
+        Side Effects:
+            - Updates progress bar through signals
+            - Emits status messages to the GUI
+            - Saves results when processing is complete
+        """
         results = {}
         progress_bar_counter = 0
         self.progress.emit(0)
@@ -137,6 +218,20 @@ class HeavyLifter(QThread):
         self.finished.emit("<br><b>Search complete.</b>")
 
     def find_file_count(self):
+        """
+        Count the total number of valid files in the directory to be processed.
+        
+        This method walks through the directory structure and counts all files
+        that are not in the ignore list. The count is used to calculate progress
+        percentage during file processing.
+        
+        Returns:
+            int: Total number of files that will be processed (excluding ignored files)
+            
+        Side Effects:
+            - Emits status messages to the GUI about the counting process
+            - Respects the recursive setting when walking directories
+        """
         file_count = 0
 
         self.finished.emit("<b>Calculating file count...</b>")
@@ -151,6 +246,22 @@ class HeavyLifter(QThread):
 
 
     def save_results(self, results):
+        """
+        Save the processing results to files in the specified output format(s).
+        
+        This method handles saving results in JSON and/or Excel formats based on
+        the output_type configuration. It uses a timestamp to create unique filenames
+        and respects the custom output path setting.
+        
+        Args:
+            results (dict): Dictionary containing file paths as keys and their
+                          archive locations (or "None"/"Error") as values
+                          
+        Side Effects:
+            - Creates output files in the specified directory
+            - Emits status messages to the GUI about save locations
+            - Emits error messages if file saving fails
+        """
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         output_location = self.custom_path
 
@@ -174,7 +285,39 @@ class HeavyLifter(QThread):
 
 
 class GuiHandler(QWidget):
+    """
+    A QWidget subclass that provides the graphical user interface for the application.
+    
+    This class creates and manages the GUI components including input fields, checkboxes,
+    buttons, progress bar, and output display. It handles user interactions and coordinates
+    with the HeavyLifter thread to process files while keeping the interface responsive.
+    
+    Attributes:
+        layout (QVBoxLayout): Main vertical layout container for all GUI elements
+        app_version (str): Version string displayed in the GUI
+        hl (HeavyLifter): Reference to the background processing thread
+        
+    GUI Components:
+        - Directory path input with browse button
+        - Custom output path selection
+        - Output format dropdown (none/json/excel/both)
+        - Recursive search checkbox
+        - Show only missing files checkbox
+        - Exclude source paths checkbox (for exports)
+        - Submit and Cancel buttons
+        - Progress bar
+        - Output text display area
+    """
     def __init__(self, app_version: str):
+        """
+        Initialize the GuiHandler with the application version.
+        
+        Sets up the main layout, stores the version string, initializes the UI,
+        and prepares the HeavyLifter thread reference.
+        
+        Args:
+            app_version (str): Version string to display in the GUI
+        """
         super().__init__()
         self.layout = QVBoxLayout()
         self.app_version = app_version
@@ -182,6 +325,24 @@ class GuiHandler(QWidget):
         self.hl = None
 
     def initUI(self):
+        """
+        Initialize and configure all GUI components.
+        
+        Creates and arranges all the user interface elements including:
+        - Window title and version display
+        - Directory path input with browse button
+        - Custom output path selection
+        - Output format dropdown
+        - Configuration checkboxes (recursive, missing files only, exclude source)
+        - Submit and cancel buttons with progress bar
+        - Output text display area
+        - Exit button
+        
+        Side Effects:
+            - Sets up all widget layouts and connections
+            - Configures event handlers for buttons
+            - Sets initial widget states and properties
+        """
         self.setWindowTitle("Batch Archived or Not")
         self.layout.addWidget(QLabel("Version: " + self.app_version))
 
@@ -272,16 +433,57 @@ class GuiHandler(QWidget):
         self.setLayout(self.layout)
 
     def browse_directory(self):
+        """
+        Open a directory selection dialog for choosing the input directory.
+        
+        Opens a file dialog allowing the user to select a directory containing
+        files to be processed. Updates the path input field with the selected directory.
+        
+        Side Effects:
+            - Opens a QFileDialog for directory selection
+            - Updates the path_line_edit widget with the selected directory path
+        """
         directory_path = QFileDialog.getExistingDirectory(self, "Select Directory")
         if directory_path:
             self.path_line_edit.setText(directory_path)
 
     def browse_custom_path(self):
+        """
+        Open a directory selection dialog for choosing the custom output directory.
+        
+        Opens a file dialog allowing the user to select a directory where output
+        files (JSON/Excel) should be saved. Updates the custom path input field.
+        
+        Side Effects:
+            - Opens a QFileDialog for directory selection
+            - Updates the custom_path_line_edit widget with the selected directory path
+        """
         custom_directory_path = QFileDialog.getExistingDirectory(self, "Select Custom Directory")
         if custom_directory_path:
             self.custom_path_line_edit.setText(custom_directory_path)
 
     def archived_or_not_call(self):
+        """
+        Initiate the file processing operation based on current GUI settings.
+        
+        Collects all configuration options from the GUI, validates the input directory,
+        creates and configures a HeavyLifter thread, and starts the background processing.
+        
+        Configuration collected:
+            - exclude_src: Whether to exclude source paths from results
+            - recursive: Whether to search subdirectories
+            - only_missing_files: Whether to show only missing files
+            - output_type: Format for saving results (none/json/excel/both)
+            - custom_path: Directory for saving output files
+            - files_location: Source directory to process
+            
+        Side Effects:
+            - Clears the output text display
+            - Validates the input directory path
+            - Creates and starts a HeavyLifter thread
+            - Connects thread signals to GUI update methods
+            - Enables the cancel button
+        """
         self.output_text_edit.clear()
 
         exclude_src = self.exclude_source_box.isChecked()
@@ -303,14 +505,54 @@ class GuiHandler(QWidget):
         self.hl.start()
 
     def cancel_heavylifter(self):
+        """
+        Cancel the currently running file processing operation.
+        
+        Checks if a HeavyLifter thread is running and calls its cancel method
+        to gracefully stop the processing. Disables the cancel button after use.
+        
+        Side Effects:
+            - Calls cancel() on the HeavyLifter thread if it's running
+            - Disables the cancel button
+        """
         if self.hl and self.hl.isRunning():
             self.hl.cancel()
             self.cancel_button.setEnabled(False)
 
     def handle_finished(self, message):
+        """
+        Handle status messages from the HeavyLifter thread.
+        
+        This slot is connected to the HeavyLifter's finished signal and receives
+        status messages throughout the processing operation. Messages are displayed
+        in the output text area to keep the user informed of progress.
+        
+        Args:
+            message (str): Status message from the HeavyLifter thread, typically
+                         containing HTML formatting for display in the text widget
+        """
         self.output_text_edit.append(message)
 
 def json_export(r, time, custom_directory_path):
+    """
+    Export processing results to a JSON file.
+    
+    Creates a JSON file containing the file processing results with a timestamp
+    in the filename. The file is saved either in the specified custom directory
+    or in the current working directory.
+    
+    Args:
+        r (dict): Results dictionary with file paths as keys and archive locations as values
+        time (str): Timestamp string for unique filename generation (format: YYYY-MM-DD_HH-MM-SS)
+        custom_directory_path (str): Directory path for saving the file, or "default" for current directory
+        
+    Returns:
+        str: Full file path where the JSON results were saved
+        
+    Side Effects:
+        - Creates a JSON file on disk
+        - Normalizes path separators to Windows format
+    """
     if custom_directory_path == "default":
         results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.json')
     else:
@@ -321,6 +563,27 @@ def json_export(r, time, custom_directory_path):
     return results_filepath
 
 def excel_export(r, time, custom_directory_path):
+    """
+    Export processing results to an Excel file.
+    
+    Creates an Excel file containing the file processing results with a timestamp
+    in the filename. The results are formatted in a two-column table with source
+    paths and their corresponding found locations.
+    
+    Args:
+        r (dict): Results dictionary with file paths as keys and archive locations as values.
+                 Values can be lists of locations, "None" for missing files, or "Error" for failed processing.
+        time (str): Timestamp string for unique filename generation (format: YYYY-MM-DD_HH-MM-SS)
+        custom_directory_path (str): Directory path for saving the file, or "default" for current directory
+        
+    Returns:
+        str: Full file path where the Excel results were saved
+        
+    Side Effects:
+        - Creates an Excel file on disk using pandas and openpyxl
+        - Normalizes path separators to Windows format
+        - Each source file gets multiple rows if it has multiple found locations
+    """
     if custom_directory_path == "default":
         results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.xlsx')
     else:
