@@ -180,10 +180,9 @@ class HeavyLifter(QThread):
                 try:
                     with open(filepath, 'rb') as f:
                         files = {'file': f}
-                        with httpx.Client(verify=False) as client:
+                        with httpx.Client(verify=False, timeout=httpx.Timeout(300.0)) as client:
                             response = client.post(request_url, headers=headers, files=files)
                         filepath = filepath.replace('/', '\\')
-
                         file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
                         if not self.only_missing_files:
                             self.finished.emit("<br><b>{}</b>".format(file_str))
@@ -590,7 +589,7 @@ def excel_export(r, time, custom_directory_path):
     results_filepath = results_filepath.replace("/", "\\")
     df = pd.DataFrame(columns=["Source Path", "Found Locations"])
     for key, vals in r.items():
-        if vals == "None":
+        if vals == "None" or vals == "Error":
             df.loc[len(df.index)] = [key, vals]
             continue
         for val in vals:
