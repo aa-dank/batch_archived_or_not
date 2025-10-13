@@ -1,4 +1,4 @@
-# Batch Archived or Not - Version 1.1.1
+# Batch Archived or Not - Version 1.1.5
 Stand-alone app for checking files to see if they have been archived in UCSC PPDO Construction Archives
 
 ## Overview
@@ -6,6 +6,8 @@ Stand-alone app for checking files to see if they have been archived in UCSC PPD
 
 ## Features
 - **File Checking**: Verifies whether files in a specified directory (and optionally sub-directories) exist on a remote server using an API.
+- **File Size Limit**: Automatically skips files larger than 650MB to prevent timeout issues and excessive network usage.
+- **Adaptive Timeouts**: Intelligent timeout handling that adjusts based on file size for optimal performance on network-mounted drives.
 - **Recursive Search**: Option to enable searching through sub-directories.
 - **Filtered Output**: Option to show only missing files in the output.
 - **Custom Output Formats**: Allows exporting results in JSON, Excel, or both formats.
@@ -70,5 +72,7 @@ python app.py
 ```
 
 ## Notes
+- **File Size Limit**: Files larger than 650MB are automatically skipped to prevent timeouts and network issues. These files are recorded in the results with a "Skipped" status indicating they exceeded the size limit. The limit can be adjusted by modifying the `MAX_FILE_SIZE_MB` constant in the source code.
+- **Adaptive Timeouts**: The application uses intelligent timeout settings that scale with file size. Small files timeout faster, while larger files get more time to upload from network-mounted drives. Connection timeouts are kept short (10 seconds) while file upload timeouts adapt from 60 seconds up to 10 minutes for very large files.
 - **SSL Certificate Handling**: The application uses httpx with SSL verification disabled for convenience. If you need to enforce certificate validation, modify the httpx.Client call in the code to verify=True.
 - **Icon**: The application includes a window icon, which you can replace by updating the app_icon_.ico file in the root directory. This can be used when packaging the project into an application.
