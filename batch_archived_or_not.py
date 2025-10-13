@@ -11,10 +11,16 @@ from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QP
 from PySide6.QtCore import Qt
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.4"
+VERSION = "1.1.5"
 URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
+
+# Maximum file size to process (in MB). Files larger than this will be skipped to prevent
+# timeouts and excessive network usage when reading from network shares and uploading to the API.
+# Skipped files are recorded in results with their size and skip reason.
+MAX_FILE_SIZE_MB = 650
+
 basedir = os.path.dirname(__file__)
 
 headers = {"user": APP_API_USERNAME, "password": APP_API_PASSWORD}
@@ -180,6 +186,16 @@ class HeavyLifter(QThread):
                 try:
                     # Calculate adaptive timeout based on file size
                     file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    
+                    # Check if file exceeds maximum size limit
+                    if file_size_mb > MAX_FILE_SIZE_MB:
+                        filepath_normalized = filepath.replace('/', '\\')
+                        error_msg = f"File too large ({file_size_mb:.1f}MB exceeds {MAX_FILE_SIZE_MB}MB limit)"
+                        self.finished.emit(f"<br><b>Skipping: {path_relative_to_files_location}</b>")
+                        self.finished.emit(f"<pre>    {error_msg}</pre>")
+                        results[filepath_normalized] = f"Skipped: {error_msg}"
+                        continue
+                    
                     # Base timeout + additional time per MB (estimate ~3 seconds per MB)
                     # Min 60s, max 600s (10 minutes) for very large files
                     write_timeout = max(60.0, min(600.0, 60.0 + (file_size_mb * 3)))
