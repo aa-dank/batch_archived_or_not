@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QP
 from PySide6.QtCore import Qt
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
