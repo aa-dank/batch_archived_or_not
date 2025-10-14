@@ -157,97 +157,97 @@ class HeavyLifter(QThread):
             self.finished.emit("No files found.")
             return
 
-        for root, _, files in os.walk(self.path):
-            if self.stop:
-                self.finished.emit("<br><b>Process canceled.</b>")
-                self.progress.emit(100)
-                return
-            # iterate through files in directory
-            for file in files:
-                # skip hidden and temp files
+        with httpx.Client(verify=False, timeout=httpx.Timeout(300.0)) as client:
+            for root, _, files in os.walk(self.path):
                 if self.stop:
                     self.finished.emit("<br><b>Process canceled.</b>")
                     self.progress.emit(100)
                     return
+                # iterate through files in directory
+                for file in files:
+                    # skip hidden and temp files
+                    if self.stop:
+                        self.finished.emit("<br><b>Process canceled.</b>")
+                        self.progress.emit(100)
+                        return
 
-                if self.ignore_file(file):
-                    continue
+                    if self.ignore_file(file):
+                        continue
 
-                # update progress bar
-                progress_bar_counter += 1
-                self.update_progress(progress_bar_counter, progress_bar_max)
+                    filepath = os.path.join(root, file)
+                    path_relative_to_files_location = os.path.relpath(filepath, self.path)
+                    request_url = URL_TEMPLATE.format(ADDRESS)
+                    file_locations = []
 
-                filepath = os.path.join(root, file)
-                path_relative_to_files_location = os.path.relpath(filepath, self.path)
-                request_url = URL_TEMPLATE.format(ADDRESS)
-                file_locations = []
-
-                # open file and send to server endpoint
-                try:
-                    # Calculate adaptive timeout based on file size
-                    file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                    
-                    # Check if file exceeds maximum size limit
-                    if file_size_mb > MAX_FILE_SIZE_MB:
-                        filepath_normalized = filepath.replace('/', '\\')
-                        error_msg = f"File too large ({file_size_mb:.1f}MB exceeds {MAX_FILE_SIZE_MB}MB limit)"
-                        self.finished.emit(f"<br><b>Skipping: {path_relative_to_files_location}</b>")
-                        self.finished.emit(f"<pre>    {error_msg}</pre>")
-                        results[filepath_normalized] = f"Skipped: {error_msg}"
+                    # open file and send to server endpoint
+                    try:
+                        # Calculate adaptive timeout based on file size
+                        file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                        
+                        # Check if file exceeds maximum size limit
+                        if file_size_mb > MAX_FILE_SIZE_MB:
+                            filepath_normalized = filepath.replace('/', '\\')
+                            error_msg = f"File too large ({file_size_mb:.1f}MB exceeds {MAX_FILE_SIZE_MB}MB limit)"
+                            self.finished.emit(f"<br><b>Skipping: {path_relative_to_files_location}</b>")
+                            self.finished.emit(f"<pre>    {error_msg}</pre>")
+                            results[filepath_normalized] = f"Skipped: {error_msg}"
+                            continue
+                        
+                        # Base timeout + additional time per MB (estimate ~3 seconds per MB)
+                        # Min 60s, max 600s (10 minutes) for very large files
+                        write_timeout = max(60.0, min(600.0, 60.0 + (file_size_mb * 3)))
+                        read_timeout = 120.0  # Server processing time
+                        
+                        # Granular timeout configuration
+                        timeout = httpx.Timeout(
+                            connect=10.0,      # Time to establish connection
+                            read=read_timeout, # Time to read response after request sent
+                            write=write_timeout, # Time to send the request (file upload)
+                            pool=5.0           # Time to acquire connection from pool
+                        )
+                        
+                        with open(filepath, 'rb') as f:
+                            files = {'file': f}
+                            response = client.post(request_url, headers=headers, files=files)
+                            filepath = filepath.replace('/', '\\')
+                            file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
+                            if not self.only_missing_files:
+                                self.finished.emit("<br><b>{}</b>".format(file_str))
+                            if response.status_code == 404:
+                                if self.only_missing_files:
+                                    self.finished.emit("<br><b>{}</b>".format(file_str))
+                                self.finished.emit("\n<pre>    None</pre>")
+                                file_locations = "None"
+                            else:
+                                file_locations = json.loads(response.text)
+                                if not self.only_missing_files:
+                                    for i in range(len(file_locations)):
+                                        file_locations[i] = "N:\\PPDO\\Records\\{}".format(file_locations[i].replace('/', '\\'))
+                                        self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
+                                        if self.exclude_src and file_locations[i] == filepath:
+                                            del file_locations[i]
+                    except Exception as e:
+                        error_message = ""
+                        if 'response' in locals() and hasattr(response, 'status_code') and response.status_code in [404, 400, 500, 405]:
+                            error_message = f"HTTP {response.status_code}: {response.text}"
+                            self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{response.text}")
+                        else:
+                            error_message = str(e)
+                            self.error.emit(f"Error processing file {path_relative_to_files_location}: {str(e)}")
+                        results[filepath] = f"Error: {error_message}" 
                         continue
                     
-                    # Base timeout + additional time per MB (estimate ~3 seconds per MB)
-                    # Min 60s, max 600s (10 minutes) for very large files
-                    write_timeout = max(60.0, min(600.0, 60.0 + (file_size_mb * 3)))
-                    read_timeout = 120.0  # Server processing time
-                    
-                    # Granular timeout configuration
-                    timeout = httpx.Timeout(
-                        connect=10.0,      # Time to establish connection
-                        read=read_timeout, # Time to read response after request sent
-                        write=write_timeout, # Time to send the request (file upload)
-                        pool=5.0           # Time to acquire connection from pool
-                    )
-                    
-                    with open(filepath, 'rb') as f:
-                        files = {'file': f}
-                        with httpx.Client(verify=False, timeout=timeout) as client:
-                            response = client.post(request_url, headers=headers, files=files)
-                        filepath = filepath.replace('/', '\\')
-                        file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
-                        if not self.only_missing_files:
-                            self.finished.emit("<br><b>{}</b>".format(file_str))
-                        if response.status_code == 404:
-                            if self.only_missing_files:
-                                self.finished.emit("<br><b>{}</b>".format(file_str))
-                            self.finished.emit("\n<pre>    None</pre>")
-                            file_locations = "None"
-                        else:
-                            file_locations = json.loads(response.text)
-                            if not self.only_missing_files:
-                                for i in range(len(file_locations)):
-                                    file_locations[i] = "N:\\PPDO\\Records\\{}".format(file_locations[i].replace('/', '\\'))
-                                    self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
-                                    if self.exclude_src and file_locations[i] == filepath:
-                                        del file_locations[i]
-                except Exception as e:
-                    error_message = ""
-                    if 'response' in locals() and hasattr(response, 'status_code') and response.status_code in [404, 400, 500, 405]:
-                        error_message = f"HTTP {response.status_code}: {response.text}"
-                        self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{response.text}")
-                    else:
-                        error_message = str(e)
-                        self.error.emit(f"Error processing file {path_relative_to_files_location}: {str(e)}")
-                    results[filepath] = f"Error: {error_message}" 
-                    continue
-                
-                results[filepath] = file_locations
+                    # update progress bar
+                    progress_bar_counter += 1
+                    self.update_progress(progress_bar_counter, progress_bar_max)
 
-            if root == self.path and not self.recursive:
-                break
+                    results[filepath] = file_locations
 
-        self.save_results(results)
-        self.finished.emit("<br><b>Search complete.</b>")
+                if root == self.path and not self.recursive:
+                    break
+
+            self.save_results(results)
+            self.finished.emit("<br><b>Search complete.</b>")
 
     def find_file_count(self):
         """
