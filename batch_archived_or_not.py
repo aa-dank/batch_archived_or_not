@@ -93,9 +93,12 @@ class HeavyLifter(QThread):
         else:
             log_filepath = os.path.join(os.getcwd(), log_filename)
             
-        # Setup logging configuration
-        self.logger = logging.getLogger(f'BatchArchived_{self.ident()}')
+        # Setup logging configuration with a simple, consistent name
+        self.logger = logging.getLogger('BatchArchived')
         self.logger.setLevel(logging.DEBUG)
+        
+        # Clear any existing handlers to prevent accumulation
+        self.logger.handlers.clear()
         
         # Create file handler
         handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
