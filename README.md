@@ -1,4 +1,4 @@
-# Batch Archived or Not - Version 1.1.5
+# Batch Archived or Not - Version 1.2.0
 Stand-alone app for checking files to see if they have been archived in UCSC PPDO Construction Archives
 
 ## Overview
@@ -12,6 +12,7 @@ Stand-alone app for checking files to see if they have been archived in UCSC PPD
 - **Filtered Output**: Option to show only missing files in the output.
 - **Custom Output Formats**: Allows exporting results in JSON, Excel, or both formats.
 - **Progress Bar**: Visual feedback through a progress bar during processing.
+- **Debug Logging**: Optional detailed logging to file for troubleshooting and analysis, including API requests, file metadata, and processing details.
 - **GUI-based Interaction**: Simple file selection and output handling through a PySide6-based graphical interface.
 - **Error Handling**: Displays detailed error messages if something goes wrong with file processing or API calls.
 
@@ -35,14 +36,36 @@ pip install pandas httpx PySide6
 3. **Output Format**: Select the desired output format (None, JSON, Excel, or both) from the dropdown menu.
 4. **Recursive Search**: Check the "Recursive" option if you want to search within sub-directories.
 5. **Only Missing Files**: Select the "Only show missing files" option to only display files that are not found on the server.
-6. **Submit**: Press the Submit button to start the process.
-7. **Progress**: The progress bar will update as files are processed, and detailed results or errors will be shown in the output text area.
-8. **Save Output**: The results will be saved in the specified format, and the application will display the path to the saved files.
+6. **Debug Logging**: Check "Enable debug logging" to create a detailed log file with processing information, API requests, file metadata, and troubleshooting details.
+7. **Submit**: Press the Submit button to start the process.
+8. **Progress**: The progress bar will update as files are processed, and detailed results or errors will be shown in the output text area.
+9. **Save Output**: The results will be saved in the specified format, and the application will display the path to the saved files.
+10. **Debug Log**: If debug logging was enabled, the location of the debug log file will be displayed after processing completes.
 
 ## File Export Options
 - **JSON Export**: Results are saved in a structured JSON file showing the file paths and their locations on the server (if found).
 - **Excel Export**: Results are saved in an Excel file with columns for the source file paths and their corresponding locations.
 - **Both**: You can select both JSON and Excel output formats.
+
+## Debug Logging
+When the "Enable debug logging" checkbox is checked, the application creates a detailed log file that includes:
+
+- **Application Configuration**: Version, API address, file size limits, and processing options
+- **Directory Processing**: Details about each directory being scanned and file counts
+- **File Metadata**: Individual file sizes, paths, and processing decisions
+- **API Interactions**: Request URLs, response status codes, response headers, raw API responses, and **request timing data**
+- **Performance Metrics**: Timeout calculations, processing progress, individual request durations, upload speeds, and overall processing statistics
+- **Error Details**: Comprehensive error information for troubleshooting
+- **Results Summary**: Breakdown of successful, missing, error, and skipped files
+
+The debug log file is saved with a timestamp (e.g., `batch_archived_debug_2024-10-15_14-30-25.log`) in either the custom output directory (if specified) or the current working directory. The log file location is displayed in the application output when processing completes.
+
+This feature is particularly useful for:
+- Troubleshooting API connectivity issues
+- Understanding why certain files were skipped or failed
+- Analyzing application performance with large file sets
+- **Performance analysis and optimization**: Understanding request times, upload speeds, and identifying bottlenecks
+- Providing detailed information for technical support
 
 ## Example Directory Structure
 For example, if you are checking files in the directory `C:\MyFiles`, and the option to search recursively is enabled, the application will search through all sub-directories within `C:\MyFiles`.
