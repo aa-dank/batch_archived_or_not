@@ -16,7 +16,7 @@ from creds import APP_API_USERNAME, APP_API_PASSWORD
 VERSION = "1.1.6"
 URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
-ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
+ADDRESS = r"ppdo-prod-app-1.vm.aws.ucsc.edu"
 
 # Maximum file size to process (in MB). Files larger than this will be skipped to prevent
 # timeouts and excessive network usage when reading from network shares and uploading to the API.
