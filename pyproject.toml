@@ -1,0 +1,12 @@
+[project]
+name = "batch-archived-or-not"
+version = "1.2.0"
+description = "Desktop app for checking files to see if they have been archived in UCSC PPDO Construction Archives"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "openpyxl>=3.1.5",
+    "pandas>=3.0.0",
+    "pyinstaller>=6.18.0",
+    "pyside6>=6.10.2",
+]
