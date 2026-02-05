@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import pandas as pd
+from openpyxl.styles import PatternFill, Font, Alignment
 import httpx
 import logging
 import time
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QP
 from PySide6.QtCore import Qt
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.7"
+VERSION = "1.1.8"
 URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-prod-app-1.vm.aws.ucsc.edu"
@@ -782,12 +783,12 @@ def excel_export(r, time, custom_directory_path):
     Export processing results to an Excel file.
     
     Creates an Excel file containing the file processing results with a timestamp
-    in the filename. The results are formatted in a two-column table with source
-    paths and their corresponding found locations.
+    in the filename. The results are formatted in a table with source paths, file
+    sizes, found locations, and optional notes.
     
     Args:
         r (dict): Results dictionary with file paths as keys and archive locations as values.
-                 Values can be lists of locations, "None" for missing files, or "Error" for failed processing.
+             Values can be lists of locations, "None" for missing files, or error/skip strings.
         time (str): Timestamp string for unique filename generation (format: YYYY-MM-DD_HH-MM-SS)
         custom_directory_path (str): Directory path for saving the file, or "default" for current directory
         
@@ -798,21 +799,43 @@ def excel_export(r, time, custom_directory_path):
         - Creates an Excel file on disk using pandas and openpyxl
         - Normalizes path separators to Windows format
         - Each source file gets multiple rows if it has multiple found locations
+        - Header row is frozen and styled for readability
     """
     if custom_directory_path == "default":
         results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.xlsx')
     else:
         results_filepath = os.path.join(custom_directory_path, f'archived_or_not_results_{time}.xlsx')
     results_filepath = results_filepath.replace("/", "\\")
-    df = pd.DataFrame(columns=["Source Path", "Found Locations"])
+    df = pd.DataFrame(columns=["Source Path", "File Size (MB)", "Found Locations", "Notes"])
+
+    def get_file_size_mb(path):
+        try:
+            return round(os.path.getsize(path) / (1024 * 1024), 2)
+        except OSError:
+            return None
+
     for key, vals in r.items():
-        if vals == "None" or vals == "Error":
-            df.loc[len(df.index)] = [key, vals]
+        file_size_mb = get_file_size_mb(key)
+        if vals == "None":
+            df.loc[len(df.index)] = [key, file_size_mb, "None", ""]
             continue
-        for val in vals:
-            df.loc[len(df.index)] = [key, val]
+        if isinstance(vals, list):
+            for val in vals:
+                df.loc[len(df.index)] = [key, file_size_mb, val, ""]
+            continue
+        df.loc[len(df.index)] = [key, file_size_mb, "", vals]
+
     with pd.ExcelWriter(results_filepath, engine="openpyxl") as writer:
         df.to_excel(writer, index=False)
+        worksheet = writer.sheets["Sheet1"]
+        worksheet.freeze_panes = "A2"
+        header_fill = PatternFill(start_color="FFD9D9D9", end_color="FFD9D9D9", fill_type="solid")
+        header_font = Font(bold=True)
+        header_alignment = Alignment(vertical="center", horizontal="center")
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
     return results_filepath
 
 
