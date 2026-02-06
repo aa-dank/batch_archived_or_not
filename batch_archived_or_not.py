@@ -160,7 +160,10 @@ class HeavyLifter(QThread):
             self.debug_log("File processing completed successfully", "info")
         except Exception as e:
             error_msg = f"Error occurred: {str(e)}"
-            self.debug_log(f"Exception in run method: {error_msg}", "error")
+            if self.debug_enabled and hasattr(self, 'logger'):
+                self.logger.exception("Unhandled exception in run method")
+            else:
+                self.debug_log(f"Exception in run method: {error_msg}", "error")
             self.error.emit(error_msg)
 
     def cancel(self):
@@ -335,6 +338,16 @@ class HeavyLifter(QThread):
                                     self.finished.emit("<br><b>{}</b>".format(file_str))
                                 self.finished.emit("\n<pre>    None</pre>")
                                 file_locations = "None"
+                            elif response.status_code == 401:
+                                error_message = "HTTP 401 Unauthorized: check API credentials"
+                                self.debug_log(f"Unauthorized for {filepath}: {error_message}", "error")
+                                self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
+                                file_locations = f"Error: {error_message}"
+                            elif response.status_code != 200:
+                                error_message = f"HTTP {response.status_code}: {response.text}"
+                                self.debug_log(f"HTTP error for {filepath}: {error_message}", "error")
+                                self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
+                                file_locations = f"Error: {error_message}"
                             else:
                                 file_locations = json.loads(response.text)
                                 self.debug_log(f"Found {len(file_locations)} locations for file: {filepath}", "info")
@@ -359,7 +372,10 @@ class HeavyLifter(QThread):
                             self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{response.text}")
                         else:
                             error_message = str(e)
-                            self.debug_log(f"Exception processing {filepath}: {error_message}", "error")
+                            if self.debug_enabled and hasattr(self, 'logger'):
+                                self.logger.exception(f"Exception processing {filepath}")
+                            else:
+                                self.debug_log(f"Exception processing {filepath}: {error_message}", "error")
                             self.error.emit(f"Error processing file {path_relative_to_files_location}: {str(e)}")
                         results[filepath] = f"Error: {error_message}" 
                         continue
