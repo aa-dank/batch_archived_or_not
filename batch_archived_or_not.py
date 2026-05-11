@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QP
 from PySide6.QtCore import Qt
 from creds import APP_API_USERNAME, APP_API_PASSWORD
 
-VERSION = "1.1.8"
+VERSION = "1.1.9"
 URL_TEMPLATE = r"https://{}/api/archived_or_not"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-prod-app-1.vm.aws.ucsc.edu"
@@ -291,6 +291,8 @@ class HeavyLifter(QThread):
                             self.finished.emit(f"<br><b>Skipping: {path_relative_to_files_location}</b>")
                             self.finished.emit(f"<pre>    {error_msg}</pre>")
                             results[filepath_normalized] = f"Skipped: {error_msg}"
+                            progress_bar_counter += 1
+                            self.update_progress(progress_bar_counter, progress_bar_max)
                             continue
                         
                         # Base timeout + additional time per MB (estimate ~3 seconds per MB)
@@ -349,15 +351,25 @@ class HeavyLifter(QThread):
                                 self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
                                 file_locations = f"Error: {error_message}"
                             else:
-                                file_locations = json.loads(response.text)
-                                self.debug_log(f"Found {len(file_locations)} locations for file: {filepath}", "info")
+                                api_locations = json.loads(response.text)
                                 self.debug_log(f"Raw API response: {response.text}", "debug")
+
+                                # Normalize API paths first, then apply source filtering on the normalized set.
+                                normalized_locations = [
+                                    "N:\\PPDO\\Records\\{}".format(location.replace('/', '\\'))
+                                    for location in api_locations
+                                ]
+                                if self.exclude_src:
+                                    file_locations = [loc for loc in normalized_locations if loc != filepath]
+                                else:
+                                    file_locations = normalized_locations
+
+                                self.debug_log(f"Found {len(file_locations)} locations for file: {filepath}", "info")
+
+                                # UI display is handled separately from normalization/filtering logic.
                                 if not self.only_missing_files:
-                                    for i in range(len(file_locations)):
-                                        file_locations[i] = "N:\\PPDO\\Records\\{}".format(file_locations[i].replace('/', '\\'))
-                                        self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
-                                        if self.exclude_src and file_locations[i] == filepath:
-                                            del file_locations[i]
+                                    for location in file_locations:
+                                        self.finished.emit("<pre>    {}</pre>".format(location))
                     except Exception as e:
                         # Calculate partial request time if the request was started
                         if 'request_start_time' in locals():
@@ -378,6 +390,8 @@ class HeavyLifter(QThread):
                                 self.debug_log(f"Exception processing {filepath}: {error_message}", "error")
                             self.error.emit(f"Error processing file {path_relative_to_files_location}: {str(e)}")
                         results[filepath] = f"Error: {error_message}" 
+                        progress_bar_counter += 1
+                        self.update_progress(progress_bar_counter, progress_bar_max)
                         continue
                     
                     # update progress bar
