@@ -1,6 +1,8 @@
 import sys
 import os
 import json
+import tomllib
+from pathlib import Path
 import pandas as pd
 from openpyxl.styles import PatternFill, Font, Alignment
 import httpx
@@ -13,9 +15,16 @@ from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QP
                                QFileDialog, QCheckBox, QLineEdit, QProgressBar, QComboBox)
 from PySide6.QtCore import Qt
 from creds import APP_API_USERNAME, APP_API_PASSWORD
+from archives_app import ArchivesApp
 
-VERSION = "1.1.9"
-URL_TEMPLATE = r"https://{}/api/archived_or_not"
+def load_project_version() -> str:
+    """Read the application version from the project metadata."""
+
+    with Path(__file__).with_name("pyproject.toml").open("rb") as pyproject_file:
+        return tomllib.load(pyproject_file)["project"]["version"]
+
+
+VERSION = load_project_version()
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-prod-app-1.vm.aws.ucsc.edu"
 
@@ -25,8 +34,6 @@ ADDRESS = r"ppdo-prod-app-1.vm.aws.ucsc.edu"
 MAX_FILE_SIZE_MB = 1000
 
 basedir = os.path.dirname(__file__)
-
-headers = {"user": APP_API_USERNAME, "password": APP_API_PASSWORD}
 
 class HeavyLifter(QThread):
     """
@@ -246,8 +253,14 @@ class HeavyLifter(QThread):
             self.finished.emit("No files found.")
             return
 
-        self.debug_log(f"Initializing HTTP client with URL template: {URL_TEMPLATE.format(ADDRESS)}", "info")
         with httpx.Client(verify=False, timeout=httpx.Timeout(300.0)) as client:
+            archives_app = ArchivesApp(
+                APP_API_USERNAME,
+                APP_API_PASSWORD,
+                ADDRESS,
+                client=client,
+            )
+            self.debug_log(f"Initializing HTTP client for: {archives_app.file_locations_url_template}", "info")
             for root, _, files in os.walk(self.path):
                 if self.stop:
                     self.debug_log("Process canceled by user", "warning")
@@ -271,7 +284,6 @@ class HeavyLifter(QThread):
 
                     filepath = os.path.join(root, file)
                     path_relative_to_files_location = os.path.relpath(filepath, self.path)
-                    request_url = URL_TEMPLATE.format(ADDRESS)
                     file_locations = []
 
                     self.debug_log(f"Processing file: {filepath}", "info")
@@ -310,66 +322,67 @@ class HeavyLifter(QThread):
                             pool=5.0           # Time to acquire connection from pool
                         )
                         
-                        self.debug_log(f"Making API request to: {request_url}", "debug")
+                        self.debug_log(f"Making API request to: {archives_app.file_locations_url_template}", "debug")
                         
                         # Start timing the API request
                         request_start_time = time.time()
                         
-                        with open(filepath, 'rb') as f:
-                            files = {'file': f}
-                            response = client.post(request_url, headers=headers, files=files)
+                        response = archives_app.file_locations(
+                            filepath,
+                            timeout=timeout,
+                        )
                             
-                            # Calculate request duration
-                            request_duration = time.time() - request_start_time
-                            total_api_time += request_duration
-                            
-                            # Calculate upload speed (MB/s) for context
-                            upload_speed_mbps = file_size_mb / request_duration if request_duration > 0 else 0
-                            
-                            self.debug_log(f"API request completed in {request_duration:.3f} seconds (File: {file_size_mb:.2f}MB, Speed: {upload_speed_mbps:.2f}MB/s)", "info")
-                            self.debug_log(f"API response status: {response.status_code}", "debug")
-                            self.debug_log(f"API response headers: {dict(response.headers)}", "debug")
-                            
-                            filepath = filepath.replace('/', '\\')
-                            file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
-                            if not self.only_missing_files:
+                        # Calculate request duration
+                        request_duration = time.time() - request_start_time
+                        total_api_time += request_duration
+
+                        # Calculate upload speed (MB/s) for context
+                        upload_speed_mbps = file_size_mb / request_duration if request_duration > 0 else 0
+
+                        self.debug_log(f"API request completed in {request_duration:.3f} seconds (File: {file_size_mb:.2f}MB, Speed: {upload_speed_mbps:.2f}MB/s)", "info")
+                        self.debug_log(f"API response status: {response.status_code}", "debug")
+                        self.debug_log(f"API response headers: {dict(response.headers)}", "debug")
+
+                        filepath = filepath.replace('/', '\\')
+                        file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
+                        if not self.only_missing_files:
+                            self.finished.emit("<br><b>{}</b>".format(file_str))
+                        if response.status_code == 404:
+                            self.debug_log(f"File not found on server: {filepath}", "info")
+                            if self.only_missing_files:
                                 self.finished.emit("<br><b>{}</b>".format(file_str))
-                            if response.status_code == 404:
-                                self.debug_log(f"File not found on server: {filepath}", "info")
-                                if self.only_missing_files:
-                                    self.finished.emit("<br><b>{}</b>".format(file_str))
-                                self.finished.emit("\n<pre>    None</pre>")
-                                file_locations = "None"
-                            elif response.status_code == 401:
-                                error_message = "HTTP 401 Unauthorized: check API credentials"
-                                self.debug_log(f"Unauthorized for {filepath}: {error_message}", "error")
-                                self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
-                                file_locations = f"Error: {error_message}"
-                            elif response.status_code != 200:
-                                error_message = f"HTTP {response.status_code}: {response.text}"
-                                self.debug_log(f"HTTP error for {filepath}: {error_message}", "error")
-                                self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
-                                file_locations = f"Error: {error_message}"
+                            self.finished.emit("\n<pre>    None</pre>")
+                            file_locations = "None"
+                        elif response.status_code == 401:
+                            error_message = "HTTP 401 Unauthorized: check API credentials"
+                            self.debug_log(f"Unauthorized for {filepath}: {error_message}", "error")
+                            self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
+                            file_locations = f"Error: {error_message}"
+                        elif response.status_code != 200:
+                            error_message = f"HTTP {response.status_code}: {response.text}"
+                            self.debug_log(f"HTTP error for {filepath}: {error_message}", "error")
+                            self.error.emit(f"Request Error for {path_relative_to_files_location}:<br>{error_message}")
+                            file_locations = f"Error: {error_message}"
+                        else:
+                            api_locations = json.loads(response.text)
+                            self.debug_log(f"Raw API response: {response.text}", "debug")
+
+                            # Normalize API paths first, then apply source filtering on the normalized set.
+                            normalized_locations = [
+                                "N:\\PPDO\\Records\\{}".format(location.replace('/', '\\'))
+                                for location in api_locations
+                            ]
+                            if self.exclude_src:
+                                file_locations = [loc for loc in normalized_locations if loc != filepath]
                             else:
-                                api_locations = json.loads(response.text)
-                                self.debug_log(f"Raw API response: {response.text}", "debug")
+                                file_locations = normalized_locations
 
-                                # Normalize API paths first, then apply source filtering on the normalized set.
-                                normalized_locations = [
-                                    "N:\\PPDO\\Records\\{}".format(location.replace('/', '\\'))
-                                    for location in api_locations
-                                ]
-                                if self.exclude_src:
-                                    file_locations = [loc for loc in normalized_locations if loc != filepath]
-                                else:
-                                    file_locations = normalized_locations
+                            self.debug_log(f"Found {len(file_locations)} locations for file: {filepath}", "info")
 
-                                self.debug_log(f"Found {len(file_locations)} locations for file: {filepath}", "info")
-
-                                # UI display is handled separately from normalization/filtering logic.
-                                if not self.only_missing_files:
-                                    for location in file_locations:
-                                        self.finished.emit("<pre>    {}</pre>".format(location))
+                            # UI display is handled separately from normalization/filtering logic.
+                            if not self.only_missing_files:
+                                for location in file_locations:
+                                    self.finished.emit("<pre>    {}</pre>".format(location))
                     except Exception as e:
                         # Calculate partial request time if the request was started
                         if 'request_start_time' in locals():

@@ -1,3 +1,4 @@
+archives-app-sdk @ git+https://github.com/aa-dank/archives_app_sdk.git@17dea18d2efee8681fb984b12eab21c776466c83
 pandas>=3.0.0
 httpx>=0.28.1
 PySide6>=6.10.2

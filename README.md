@@ -1,4 +1,4 @@
-# Batch Archived or Not - Version 1.2.0
+# Batch Archived or Not
 Stand-alone app for checking files to see if they have been archived in UCSC PPDO Construction Archives
 
 ## Overview

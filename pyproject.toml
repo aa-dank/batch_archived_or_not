@@ -1,9 +1,10 @@
 [project]
 name = "batch-archived-or-not"
-version = "1.1.9"
+version = "1.1.10"
 description = "Desktop app for checking files to see if they have been archived in UCSC PPDO Construction Archives"
 requires-python = ">=3.13"
 dependencies = [
+    "archives-app-sdk @ git+https://github.com/aa-dank/archives_app_sdk.git@17dea18d2efee8681fb984b12eab21c776466c83",
     "httpx>=0.28.1",
     "openpyxl>=3.1.5",
     "pandas>=3.0.0",
